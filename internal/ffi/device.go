@@ -62,21 +62,23 @@ func newDevice(ptr *C.zktf_sim_device) *Device {
 }
 
 // NewDevice allocates a simulated mobile device connected to the network.
-func NewDevice(network *Network) *Device {
-	return newDevice(C.zktf_sim_device_new(network.ptr))
+// logLevel selects the native log verbosity for this device's account.
+func NewDevice(network *Network, logLevel uint32) *Device {
+	return newDevice(C.zktf_sim_device_new(network.ptr, C.uint32_t(logLevel)))
 }
 
 // DeviceAttach allocates a simulated device attached to a real, test-deployed
 // backend at the given endpoints. The device always uses test trust anchors.
-// Returns nil on invalid (non-UTF-8) endpoints.
-func DeviceAttach(rpcEndpoint, objectEndpoint, messagingEndpoint string) *Device {
+// Returns nil on invalid (non-UTF-8) endpoints. logLevel selects the native log
+// verbosity for this device's account.
+func DeviceAttach(rpcEndpoint, objectEndpoint, messagingEndpoint string, logLevel uint32) *Device {
 	rpc := C.CString(rpcEndpoint)
 	object := C.CString(objectEndpoint)
 	messaging := C.CString(messagingEndpoint)
 	defer free(unsafe.Pointer(rpc))
 	defer free(unsafe.Pointer(object))
 	defer free(unsafe.Pointer(messaging))
-	return newDevice(C.zktf_sim_device_attach(rpc, object, messaging))
+	return newDevice(C.zktf_sim_device_attach(rpc, object, messaging, C.uint32_t(logLevel)))
 }
 
 // Expect registers an auto-response rule. requestID is used only for

@@ -66,6 +66,39 @@ func (b Behaviour) After(d time.Duration) Behaviour {
 	return b
 }
 
+// LogLevel selects the native log verbosity for a device's account.
+type LogLevel uint32
+
+const (
+	LogError LogLevel = iota
+	LogWarn
+	LogInfo
+	LogDebug
+	LogTrace
+)
+
+// Option configures a device at construction time.
+type Option func(*options)
+
+type options struct {
+	logLevel LogLevel
+}
+
+// WithLogLevel sets the native log verbosity for the device's account. Logs are
+// written to stderr, prefixed with the account id, so multiple devices in one
+// process can be told apart. Defaults to LogError (effectively quiet).
+func WithLogLevel(level LogLevel) Option {
+	return func(o *options) { o.logLevel = level }
+}
+
+func collectOptions(opts []Option) options {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
 // Device is a simulated mobile client. Register rules with Expect before
 // driving a workflow; the device auto-responds to matching messages on a
 // background thread.
@@ -74,15 +107,17 @@ type Device struct {
 }
 
 // NewDevice creates a device with its own account connected to the network.
-func NewDevice(network *Network) *Device {
-	return &Device{h: ffi.NewDevice(network.h)}
+func NewDevice(network *Network, opts ...Option) *Device {
+	o := collectOptions(opts)
+	return &Device{h: ffi.NewDevice(network.h, uint32(o.logLevel))}
 }
 
 // AttachDevice creates a device attached to a real, test-deployed backend at
 // the given endpoints. The device always uses test trust anchors, so it can
 // only interoperate with test networks — there is no way to target production.
-func AttachDevice(rpcEndpoint, objectEndpoint, messagingEndpoint string) *Device {
-	return &Device{h: ffi.DeviceAttach(rpcEndpoint, objectEndpoint, messagingEndpoint)}
+func AttachDevice(rpcEndpoint, objectEndpoint, messagingEndpoint string, opts ...Option) *Device {
+	o := collectOptions(opts)
+	return &Device{h: ffi.DeviceAttach(rpcEndpoint, objectEndpoint, messagingEndpoint, uint32(o.logLevel))}
 }
 
 // Expect registers an auto-response rule. Rules are evaluated in registration
