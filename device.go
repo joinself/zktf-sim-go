@@ -66,11 +66,13 @@ func (b Behaviour) After(d time.Duration) Behaviour {
 	return b
 }
 
-// LogLevel selects the native log verbosity for a device's account.
+// LogLevel selects the native log verbosity for a device's account. Values
+// mirror the native zktf_log_level (1..5); the zero value is treated as
+// LogError (quiet) by the native layer.
 type LogLevel uint32
 
 const (
-	LogError LogLevel = iota
+	LogError LogLevel = iota + 1
 	LogWarn
 	LogInfo
 	LogDebug
