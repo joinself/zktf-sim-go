@@ -163,3 +163,8 @@ func (d *Device) Register(counterparty *signing.PublicKey) error {
 func (d *Device) Connect(counterparty *signing.PublicKey) error {
 	return d.h.Connect(counterparty.Bytes())
 }
+
+// Close destroys the device's native account
+func (d *Device) Close() {
+	d.h.Close()
+}

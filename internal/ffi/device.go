@@ -47,7 +47,8 @@ const (
 
 // Device wraps a zktf_sim_device handle.
 type Device struct {
-	ptr *C.zktf_sim_device
+	ptr     *C.zktf_sim_device
+	cleanup runtime.Cleanup
 }
 
 func newDevice(ptr *C.zktf_sim_device) *Device {
@@ -55,10 +56,21 @@ func newDevice(ptr *C.zktf_sim_device) *Device {
 		return nil
 	}
 	d := &Device{ptr: ptr}
-	runtime.AddCleanup(d, func(ptr *C.zktf_sim_device) {
+	d.cleanup = runtime.AddCleanup(d, func(ptr *C.zktf_sim_device) {
 		C.zktf_sim_device_destroy(ptr)
 	}, d.ptr)
 	return d
+}
+
+// Close destroys the native device, stopping the GC cleanup to avoid a double
+// free. No-op if already closed; not safe for concurrent use.
+func (d *Device) Close() {
+	if d.ptr == nil {
+		return
+	}
+	d.cleanup.Stop()
+	C.zktf_sim_device_destroy(d.ptr)
+	d.ptr = nil
 }
 
 // NewDevice allocates a simulated mobile device connected to the network.
