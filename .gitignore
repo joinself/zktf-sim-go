@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# fetched native archives (scripts/fetch-native.sh)
+.zktf-native/
+
 # Editor/IDE
 # .idea/
 # .vscode/
