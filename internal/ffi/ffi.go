@@ -13,9 +13,29 @@
 // them into zktf-sdk-go native key types.
 //
 // Build prerequisites: the native header `zktf-sim.h` must be on the C include
-// path and `libzktf_sim` on the linker path. Because this module also imports
-// zktf-sdk-go, `zktf-sdk.h` / `libzktf_sdk` must be available too. For local
-// development point cgo at the zktf-sdk checkout, e.g.:
+// path and `libzktf_sim` on the linker path, matching the version pinned in
+// `zktf-sim-version` at the repo root. Because this module also imports
+// zktf-sdk-go, `zktf-sdk.h` / `libzktf_sdk` must be available too, matching
+// `zktf-sdk-version`.
+//
+// Primary path — scripted fetch of both prebuilt archives:
+//
+//	eval "$(scripts/fetch-native.sh)"
+//	go build ./...
+//
+// `scripts/fetch-native.sh` reads `zktf-sim-version` and `zktf-sdk-version`,
+// maps GOOS/GOARCH to the matching Rust target triple, downloads
+// `zktf-sim-<triple>-<version>.tar.gz` from `gs://download.joinself.com/zktf-sim/`
+// and `zktf-sdk-<triple>-<version>.tar.gz` from `gs://download.joinself.com/zktf-sdk/`
+// (via curl/wget against the public HTTPS mirror, falling back to `gcloud
+// storage cp`) into `.zktf-native/`, and prints the combined `CGO_CFLAGS` /
+// `CGO_LDFLAGS` / `LD_LIBRARY_PATH` values needed to build against both (it
+// also writes them to a sourceable `.env`).
+//
+// Fallback — local dev against a sibling zktf-sdk checkout:
+//
+// If you are iterating on the native side too, point cgo directly at the
+// zktf-sdk checkout instead of the pinned prebuilt archives, e.g.:
 //
 //	CGO_CFLAGS="-I/path/to/zktf-sdk/crates/sim-ffi -I/path/to/zktf-sdk/crates/zktf-ffi" \
 //	CGO_LDFLAGS=-L/path/to/zktf-sdk/target/debug \
