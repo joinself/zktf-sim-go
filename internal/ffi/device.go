@@ -43,7 +43,19 @@ const (
 	BehaveAccept Behaviour = C.ZKTF_SIM_BEHAVE_ACCEPT
 	BehaveReject Behaviour = C.ZKTF_SIM_BEHAVE_REJECT
 	BehaveIgnore Behaviour = C.ZKTF_SIM_BEHAVE_IGNORE
+	// BehaveIntercept diverts the message to Intercepted instead of driving a
+	// workflow, so the caller answers it as the application would.
+	BehaveIntercept Behaviour = C.ZKTF_SIM_BEHAVE_INTERCEPT
 )
+
+// Intercepted is a message diverted by a BehaveIntercept rule. The device has
+// taken no action on it.
+type Intercepted struct {
+	From        []byte
+	To          []byte
+	ContentType ContentType
+	Content     []byte
+}
 
 // Device wraps a zktf_sim_device handle.
 type Device struct {
@@ -107,6 +119,118 @@ func (d *Device) Expect(kind MatchKind, contentType ContentType, requestID []byt
 		C.enum_zktf_sim_behaviour(behaviour),
 		C.uint64_t(delayMs),
 	)
+}
+
+// InterceptedFuture is a pending diverted message. Resolve it with Wait, or
+// discard it with Cancel; either consumes the handle.
+type InterceptedFuture struct {
+	ptr *C.zktf_sim_future_intercepted
+}
+
+// Intercepted returns a handle for the next diverted message.
+func (d *Device) Intercepted() *InterceptedFuture {
+	ptr := C.zktf_sim_device_intercepted(d.ptr)
+	if ptr == nil {
+		return nil
+	}
+	return &InterceptedFuture{ptr: ptr}
+}
+
+// Wait blocks until a message is diverted or timeoutMs elapses, returning nil
+// on timeout. A zero timeout waits indefinitely. Consumes the handle.
+func (f *InterceptedFuture) Wait(timeoutMs uint64) (*Intercepted, error) {
+	var msg *C.zktf_sim_intercepted
+
+	code := C.zktf_sim_future_intercepted_wait(f.ptr, C.uint64_t(timeoutMs), &msg)
+	if code == C.ZKTF_SIM_TIMEOUT {
+		return nil, nil
+	}
+	if err := status(code); err != nil {
+		return nil, err
+	}
+	defer C.zktf_sim_intercepted_destroy(msg)
+
+	from, err := keyBytes(func(buf *C.uint8_t) C.enum_zktf_sim_status {
+		return C.zktf_sim_intercepted_from(msg, buf, signingKeyBytesLen)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	to, err := keyBytes(func(buf *C.uint8_t) C.enum_zktf_sim_status {
+		return C.zktf_sim_intercepted_to(msg, buf, signingKeyBytesLen)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// the message is owned until destroy, so sizing then reading is safe
+	var contentLen C.size_t
+	if code := C.zktf_sim_intercepted_content(msg, nil, 0, &contentLen); code != C.ZKTF_SIM_BUFFER_INSUFFICIENT {
+		if err := status(code); err != nil {
+			return nil, err
+		}
+	}
+
+	content := C.malloc(contentLen)
+	defer C.free(content)
+
+	if err := status(C.zktf_sim_intercepted_content(msg, (*C.uint8_t)(content), contentLen, &contentLen)); err != nil {
+		return nil, err
+	}
+
+	return &Intercepted{
+		From:        from,
+		To:          to,
+		ContentType: ContentType(C.zktf_sim_intercepted_content_type(msg)),
+		Content:     C.GoBytes(content, C.int(contentLen)),
+	}, nil
+}
+
+// Cancel discards the handle without taking a message.
+func (f *InterceptedFuture) Cancel() {
+	C.zktf_sim_future_intercepted_cancel(f.ptr)
+}
+
+// SigningKeyCreate mints a signing keypair the device retains and returns its
+// address, so a credential can name it as issuer before it exists as an identity.
+func (d *Device) SigningKeyCreate() ([]byte, error) {
+	return keyBytes(func(buf *C.uint8_t) C.enum_zktf_sim_status {
+		return C.zktf_sim_device_signing_key_create(d.ptr, buf, signingKeyBytesLen)
+	})
+}
+
+// MintControllerIdentity mints a free-standing anchored identity for identifier
+// and signs credential as that identity, in one liveness-authorized batch.
+// credential is JSON; the signed credential is returned as JSON.
+func (d *Device) MintControllerIdentity(identifier, credential []byte) ([]byte, error) {
+	idBuf, idLen := cbytes(identifier)
+	defer free(unsafe.Pointer(idBuf))
+	credBuf, credLen := cbytes(credential)
+	defer free(unsafe.Pointer(credBuf))
+
+	var signedLen C.size_t
+
+	code := C.zktf_sim_device_mint_controller_identity(
+		d.ptr, idBuf, idLen, credBuf, credLen, nil, 0, &signedLen,
+	)
+	if code != C.ZKTF_SIM_BUFFER_INSUFFICIENT {
+		if err := status(code); err != nil {
+			return nil, err
+		}
+	}
+
+	signed := C.malloc(signedLen)
+	defer C.free(signed)
+
+	if err := status(C.zktf_sim_device_mint_controller_identity(
+		d.ptr, idBuf, idLen, credBuf, credLen,
+		(*C.uint8_t)(signed), signedLen, &signedLen,
+	)); err != nil {
+		return nil, err
+	}
+
+	return C.GoBytes(signed, C.int(signedLen)), nil
 }
 
 func (d *Device) Address() ([]byte, error) {

@@ -60,10 +60,24 @@ func Reject() Behaviour { return Behaviour{action: ffi.BehaveReject} }
 // Ignore drops the matched message without responding.
 func Ignore() Behaviour { return Behaviour{action: ffi.BehaveIgnore} }
 
+// Intercept hands the matched message to Intercepted instead of driving a
+// workflow for it. The device does nothing further, so the caller answers it
+// the way the host application would.
+func Intercept() Behaviour { return Behaviour{action: ffi.BehaveIntercept} }
+
 // After defers the behaviour by d before it is applied.
 func (b Behaviour) After(d time.Duration) Behaviour {
 	b.delay = d
 	return b
+}
+
+// Intercepted is a message an Intercept rule diverted to the caller. The
+// device has taken no action on it.
+type Intercepted struct {
+	From        *signing.PublicKey
+	To          *signing.PublicKey
+	ContentType ContentType
+	Content     []byte
 }
 
 // LogLevel selects the native log verbosity for a device's account. Values
@@ -162,6 +176,70 @@ func (d *Device) Register(counterparty *signing.PublicKey) error {
 // until the workflow completes, is rejected, or times out.
 func (d *Device) Connect(counterparty *signing.PublicKey) error {
 	return d.h.Connect(counterparty.Bytes())
+}
+
+// InterceptedFuture is a pending diverted message. Resolve it with Wait, or
+// discard it with Cancel; either consumes the handle.
+type InterceptedFuture struct {
+	f *ffi.InterceptedFuture
+}
+
+// Intercepted returns a handle for the next message an Intercept rule diverts.
+// Take it before the request is sent, so nothing is missed between arrival and
+// the wait.
+func (d *Device) Intercepted() *InterceptedFuture {
+	f := d.h.Intercepted()
+	if f == nil {
+		return nil
+	}
+	return &InterceptedFuture{f: f}
+}
+
+// Wait blocks until a message is diverted or timeout elapses, returning nil on
+// timeout. A zero timeout waits indefinitely. Consumes the handle.
+func (i *InterceptedFuture) Wait(timeout time.Duration) (*Intercepted, error) {
+	raw, err := i.f.Wait(uint64(timeout.Milliseconds()))
+	if err != nil || raw == nil {
+		return nil, err
+	}
+
+	from, err := signing.FromBytes(raw.From)
+	if err != nil {
+		return nil, err
+	}
+
+	to, err := signing.FromBytes(raw.To)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Intercepted{
+		From:        from,
+		To:          to,
+		ContentType: ContentType(raw.ContentType),
+		Content:     raw.Content,
+	}, nil
+}
+
+// Cancel discards the handle without taking a message.
+func (i *InterceptedFuture) Cancel() { i.f.Cancel() }
+
+// SigningKeyCreate mints a signing keypair the device retains and returns its
+// address. Reserving it first is what lets a credential issued in the same
+// batch as MintControllerIdentity name the identity as its issuer.
+func (d *Device) SigningKeyCreate() (*signing.PublicKey, error) {
+	address, err := d.h.SigningKeyCreate()
+	if err != nil {
+		return nil, err
+	}
+	return signing.FromBytes(address)
+}
+
+// MintControllerIdentity mints a free-standing anchored identity for identifier
+// and signs credential as that identity, in one liveness-authorized operation.
+// credential is the unsigned credential as JSON; the signed one is returned.
+func (d *Device) MintControllerIdentity(identifier *signing.PublicKey, credential []byte) ([]byte, error) {
+	return d.h.MintControllerIdentity(identifier.Bytes(), credential)
 }
 
 // Close destroys the device's native account
