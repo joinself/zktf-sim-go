@@ -11,6 +11,20 @@ import (
 	"unsafe"
 )
 
+// goBytesFromBuffer copies a zktf_bytes_buffer into a Go slice and destroys the
+// buffer.
+func goBytesFromBuffer(buf *C.zktf_bytes_buffer) []byte {
+	if buf == nil {
+		return nil
+	}
+	defer C.zktf_bytes_buffer_destroy(buf)
+
+	return C.GoBytes(
+		unsafe.Pointer(C.zktf_bytes_buffer_buf(buf)),
+		C.int(C.zktf_bytes_buffer_len(buf)),
+	)
+}
+
 // MatchKind mirrors zktf_sim_match_kind.
 type MatchKind uint32
 
@@ -164,18 +178,8 @@ func (f *InterceptedFuture) Wait(timeoutMs uint64) (*Intercepted, error) {
 		return nil, err
 	}
 
-	// the message is owned until destroy, so sizing then reading is safe
-	var contentLen C.size_t
-	if code := C.zktf_sim_intercepted_content(msg, nil, 0, &contentLen); code != C.ZKTF_SIM_BUFFER_INSUFFICIENT {
-		if err := status(code); err != nil {
-			return nil, err
-		}
-	}
-
-	content := C.malloc(contentLen)
-	defer C.free(content)
-
-	if err := status(C.zktf_sim_intercepted_content(msg, (*C.uint8_t)(content), contentLen, &contentLen)); err != nil {
+	var content *C.zktf_bytes_buffer
+	if err := status(C.zktf_sim_intercepted_content(msg, &content)); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +187,7 @@ func (f *InterceptedFuture) Wait(timeoutMs uint64) (*Intercepted, error) {
 		From:        from,
 		To:          to,
 		ContentType: ContentType(C.zktf_sim_intercepted_content_type(msg)),
-		Content:     C.GoBytes(content, C.int(contentLen)),
+		Content:     goBytesFromBuffer(content),
 	}, nil
 }
 
@@ -209,28 +213,14 @@ func (d *Device) MintControllerIdentity(identifier, credential []byte) ([]byte, 
 	credBuf, credLen := cbytes(credential)
 	defer free(unsafe.Pointer(credBuf))
 
-	var signedLen C.size_t
-
-	code := C.zktf_sim_device_mint_controller_identity(
-		d.ptr, idBuf, idLen, credBuf, credLen, nil, 0, &signedLen,
-	)
-	if code != C.ZKTF_SIM_BUFFER_INSUFFICIENT {
-		if err := status(code); err != nil {
-			return nil, err
-		}
-	}
-
-	signed := C.malloc(signedLen)
-	defer C.free(signed)
-
+	var signed *C.zktf_bytes_buffer
 	if err := status(C.zktf_sim_device_mint_controller_identity(
-		d.ptr, idBuf, idLen, credBuf, credLen,
-		(*C.uint8_t)(signed), signedLen, &signedLen,
+		d.ptr, idBuf, idLen, credBuf, credLen, &signed,
 	)); err != nil {
 		return nil, err
 	}
 
-	return C.GoBytes(signed, C.int(signedLen)), nil
+	return goBytesFromBuffer(signed), nil
 }
 
 func (d *Device) Address() ([]byte, error) {
