@@ -1,9 +1,11 @@
 package simulator
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/joinself/zktf-sdk-go/keypair/signing"
+	"github.com/joinself/zktf-sdk-go/message"
 	"github.com/joinself/zktf-sim-go/internal/ffi"
 )
 
@@ -74,10 +76,34 @@ func (b Behaviour) After(d time.Duration) Behaviour {
 // Intercepted is a message an Intercept rule diverted to the caller. The
 // device has taken no action on it.
 type Intercepted struct {
-	From        *signing.PublicKey
-	To          *signing.PublicKey
-	ContentType ContentType
-	Content     []byte
+	From    *signing.PublicKey
+	To      *signing.PublicKey
+	Content *message.Content
+}
+
+func (c ContentType) message() (message.ContentType, error) {
+	switch c {
+	case ContentCustom:
+		return message.ContentCustom, nil
+	case ContentChat:
+		return message.ContentChat, nil
+	case ContentReceipt:
+		return message.ContentReceipt, nil
+	case ContentCredential:
+		return message.ContentCredential, nil
+	case ContentIntroduction:
+		return message.ContentIntroduction, nil
+	case ContentDiscoveryRequest:
+		return message.ContentDiscoveryRequest, nil
+	case ContentDiscoveryResponse:
+		return message.ContentDiscoveryResponse, nil
+	case ContentExchangeRequest:
+		return message.ContentExchangeRequest, nil
+	case ContentExchangeResponse:
+		return message.ContentExchangeResponse, nil
+	default:
+		return message.ContentUnknown, fmt.Errorf("simulator: cannot decode content type %d", c)
+	}
 }
 
 // LogLevel selects the native log verbosity for a device's account. Values
@@ -213,11 +239,20 @@ func (i *InterceptedFuture) Wait(timeout time.Duration) (*Intercepted, error) {
 		return nil, err
 	}
 
+	contentType, err := ContentType(raw.ContentType).message()
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := message.ContentDecode(contentType, raw.Content)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Intercepted{
-		From:        from,
-		To:          to,
-		ContentType: ContentType(raw.ContentType),
-		Content:     raw.Content,
+		From:    from,
+		To:      to,
+		Content: content,
 	}, nil
 }
 
