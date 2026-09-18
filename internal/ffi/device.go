@@ -11,17 +11,17 @@ import (
 	"unsafe"
 )
 
-// goBytesFromBuffer copies a zktf_bytes_buffer into a Go slice and destroys the
-// buffer.
-func goBytesFromBuffer(buf *C.zktf_bytes_buffer) []byte {
+// goBytesFromBuffer copies a zktf_sim_bytes_buffer into a Go slice and destroys
+// the buffer.
+func goBytesFromBuffer(buf *C.zktf_sim_bytes_buffer) []byte {
 	if buf == nil {
 		return nil
 	}
-	defer C.zktf_bytes_buffer_destroy(buf)
+	defer C.zktf_sim_bytes_buffer_destroy(buf)
 
 	return C.GoBytes(
-		unsafe.Pointer(C.zktf_bytes_buffer_buf(buf)),
-		C.int(C.zktf_bytes_buffer_len(buf)),
+		unsafe.Pointer(C.zktf_sim_bytes_buffer_buf(buf)),
+		C.int(C.zktf_sim_bytes_buffer_len(buf)),
 	)
 }
 
@@ -179,7 +179,7 @@ func (f *InterceptedFuture) Wait(timeoutMs uint64) (*Intercepted, error) {
 		return nil, err
 	}
 
-	var content *C.zktf_bytes_buffer
+	var content *C.zktf_sim_bytes_buffer
 	if err := status(C.zktf_sim_intercepted_content(msg, &content)); err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (d *Device) MintControllerIdentity(identifier, credential []byte) ([]byte, 
 	credBuf, credLen := cbytes(credential)
 	defer free(unsafe.Pointer(credBuf))
 
-	var signed *C.zktf_bytes_buffer
+	var signed *C.zktf_sim_bytes_buffer
 	if err := status(C.zktf_sim_device_mint_controller_identity(
 		d.ptr, idBuf, idLen, credBuf, credLen, &signed,
 	)); err != nil {
