@@ -62,19 +62,14 @@ func Reject() Behaviour { return Behaviour{action: ffi.BehaveReject} }
 // Ignore drops the matched message without responding.
 func Ignore() Behaviour { return Behaviour{action: ffi.BehaveIgnore} }
 
-// Intercept hands the matched message to Intercepted instead of driving a
-// workflow for it. The device does nothing further, so the caller answers it
-// the way the host application would.
-func Intercept() Behaviour { return Behaviour{action: ffi.BehaveIntercept} }
-
 // After defers the behaviour by d before it is applied.
 func (b Behaviour) After(d time.Duration) Behaviour {
 	b.delay = d
 	return b
 }
 
-// Intercepted is a message an Intercept rule diverted to the caller. The
-// device has taken no action on it.
+// Intercepted is a message Intercept diverted to the caller. The device has
+// taken no action on it.
 type Intercepted struct {
 	From    *signing.PublicKey
 	To      *signing.PublicKey
@@ -210,19 +205,21 @@ type InterceptedFuture struct {
 	f *ffi.InterceptedFuture
 }
 
-// Intercepted returns a handle for the next message an Intercept rule diverts.
-// Take it before the request is sent, so nothing is missed between arrival and
-// the wait.
-func (d *Device) Intercepted() *InterceptedFuture {
-	f := d.h.Intercepted()
+// Intercept diverts the message carrying requestID to the caller instead of
+// driving a workflow for it, and returns the handle it arrives on. Arm it
+// before the request is sent, so nothing is missed between arrival and the
+// wait. The device does nothing further, so the caller answers it the way the
+// host application would.
+func (d *Device) Intercept(requestID []byte) *InterceptedFuture {
+	f := d.h.Intercept(requestID)
 	if f == nil {
 		return nil
 	}
 	return &InterceptedFuture{f: f}
 }
 
-// Wait blocks until a message is diverted or timeout elapses, returning nil on
-// timeout. A zero timeout waits indefinitely. Consumes the handle.
+// Wait blocks until the message is diverted or timeout elapses, returning nil
+// on timeout. A zero timeout waits indefinitely. Consumes the handle.
 func (i *InterceptedFuture) Wait(timeout time.Duration) (*Intercepted, error) {
 	raw, err := i.f.Wait(uint64(timeout.Milliseconds()))
 	if err != nil || raw == nil {

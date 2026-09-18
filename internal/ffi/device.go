@@ -57,13 +57,10 @@ const (
 	BehaveAccept Behaviour = C.ZKTF_SIM_BEHAVE_ACCEPT
 	BehaveReject Behaviour = C.ZKTF_SIM_BEHAVE_REJECT
 	BehaveIgnore Behaviour = C.ZKTF_SIM_BEHAVE_IGNORE
-	// BehaveIntercept diverts the message to Intercepted instead of driving a
-	// workflow, so the caller answers it as the application would.
-	BehaveIntercept Behaviour = C.ZKTF_SIM_BEHAVE_INTERCEPT
 )
 
-// Intercepted is a message diverted by a BehaveIntercept rule. The device has
-// taken no action on it.
+// Intercepted is a message diverted by Intercept. The device has taken no
+// action on it.
 type Intercepted struct {
 	From        []byte
 	To          []byte
@@ -141,9 +138,13 @@ type InterceptedFuture struct {
 	ptr *C.zktf_sim_future_intercepted
 }
 
-// Intercepted returns a handle for the next diverted message.
-func (d *Device) Intercepted() *InterceptedFuture {
-	ptr := C.zktf_sim_device_intercepted(d.ptr)
+// Intercept diverts the message carrying requestID and returns the handle it
+// arrives on.
+func (d *Device) Intercept(requestID []byte) *InterceptedFuture {
+	buf, length := cbytes(requestID)
+	defer free(unsafe.Pointer(buf))
+
+	ptr := C.zktf_sim_device_intercept(d.ptr, buf, length)
 	if ptr == nil {
 		return nil
 	}
