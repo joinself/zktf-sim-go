@@ -2,3 +2,5 @@ github.com/joinself/zktf-sdk-go v0.1.0-rc.4 h1:cg7kVImmTKoF8DSTmMNv0ye69QiJXmWRf
 github.com/joinself/zktf-sdk-go v0.1.0-rc.4/go.mod h1:8AqPewGkIT8+go7SDcTkPf/mhVgzuBv23MrWIWh99zo=
 github.com/joinself/zktf-sdk-go v0.1.0-rc.5 h1:5bZ+4cfMpaqMvkUgYn5sEB8JjXbymU0HvUg1lxorgcE=
 github.com/joinself/zktf-sdk-go v0.1.0-rc.5/go.mod h1:8AqPewGkIT8+go7SDcTkPf/mhVgzuBv23MrWIWh99zo=
+github.com/joinself/zktf-sdk-go v0.1.0-rc.6 h1:FmhXbJrV8UYX65GfDBwGHatQSdRRqADo+IlLeXl5zyM=
+github.com/joinself/zktf-sdk-go v0.1.0-rc.6/go.mod h1:8AqPewGkIT8+go7SDcTkPf/mhVgzuBv23MrWIWh99zo=

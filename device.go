@@ -1,9 +1,11 @@
 package simulator
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/joinself/zktf-sdk-go/keypair/signing"
+	"github.com/joinself/zktf-sdk-go/message"
 	"github.com/joinself/zktf-sim-go/internal/ffi"
 )
 
@@ -64,6 +66,39 @@ func Ignore() Behaviour { return Behaviour{action: ffi.BehaveIgnore} }
 func (b Behaviour) After(d time.Duration) Behaviour {
 	b.delay = d
 	return b
+}
+
+// Intercepted is a message Intercept diverted to the caller. The device has
+// taken no action on it.
+type Intercepted struct {
+	From    *signing.PublicKey
+	To      *signing.PublicKey
+	Content *message.Content
+}
+
+func (c ContentType) message() (message.ContentType, error) {
+	switch c {
+	case ContentCustom:
+		return message.ContentCustom, nil
+	case ContentChat:
+		return message.ContentChat, nil
+	case ContentReceipt:
+		return message.ContentReceipt, nil
+	case ContentCredential:
+		return message.ContentCredential, nil
+	case ContentIntroduction:
+		return message.ContentIntroduction, nil
+	case ContentDiscoveryRequest:
+		return message.ContentDiscoveryRequest, nil
+	case ContentDiscoveryResponse:
+		return message.ContentDiscoveryResponse, nil
+	case ContentExchangeRequest:
+		return message.ContentExchangeRequest, nil
+	case ContentExchangeResponse:
+		return message.ContentExchangeResponse, nil
+	default:
+		return message.ContentUnknown, fmt.Errorf("simulator: cannot decode content type %d", c)
+	}
 }
 
 // LogLevel selects the native log verbosity for a device's account. Values
@@ -162,6 +197,81 @@ func (d *Device) Register(counterparty *signing.PublicKey) error {
 // until the workflow completes, is rejected, or times out.
 func (d *Device) Connect(counterparty *signing.PublicKey) error {
 	return d.h.Connect(counterparty.Bytes())
+}
+
+// InterceptedFuture is a pending diverted message. Resolve it with Wait, or
+// discard it with Cancel; either consumes the handle.
+type InterceptedFuture struct {
+	f *ffi.InterceptedFuture
+}
+
+// Intercept diverts the message carrying requestID to the caller instead of
+// driving a workflow for it, and returns the handle it arrives on. Arm it
+// before the request is sent, so nothing is missed between arrival and the
+// wait. The device does nothing further, so the caller answers it the way the
+// host application would.
+func (d *Device) Intercept(requestID []byte) *InterceptedFuture {
+	f := d.h.Intercept(requestID)
+	if f == nil {
+		return nil
+	}
+	return &InterceptedFuture{f: f}
+}
+
+// Wait blocks until the message is diverted or timeout elapses, returning nil
+// on timeout. A zero timeout waits indefinitely. Consumes the handle.
+func (i *InterceptedFuture) Wait(timeout time.Duration) (*Intercepted, error) {
+	raw, err := i.f.Wait(uint64(timeout.Milliseconds()))
+	if err != nil || raw == nil {
+		return nil, err
+	}
+
+	from, err := signing.FromBytes(raw.From)
+	if err != nil {
+		return nil, err
+	}
+
+	to, err := signing.FromBytes(raw.To)
+	if err != nil {
+		return nil, err
+	}
+
+	contentType, err := ContentType(raw.ContentType).message()
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := message.ContentDecode(contentType, raw.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Intercepted{
+		From:    from,
+		To:      to,
+		Content: content,
+	}, nil
+}
+
+// Cancel discards the handle without taking a message.
+func (i *InterceptedFuture) Cancel() { i.f.Cancel() }
+
+// SigningKeyCreate mints a signing keypair the device retains and returns its
+// address. Reserving it first is what lets a credential issued in the same
+// batch as MintControllerIdentity name the identity as its issuer.
+func (d *Device) SigningKeyCreate() (*signing.PublicKey, error) {
+	address, err := d.h.SigningKeyCreate()
+	if err != nil {
+		return nil, err
+	}
+	return signing.FromBytes(address)
+}
+
+// MintControllerIdentity mints a free-standing anchored identity for identifier
+// and signs credential as that identity, in one liveness-authorized operation.
+// credential is the unsigned credential as JSON; the signed one is returned.
+func (d *Device) MintControllerIdentity(identifier *signing.PublicKey, credential []byte) ([]byte, error) {
+	return d.h.MintControllerIdentity(identifier.Bytes(), credential)
 }
 
 // Close destroys the device's native account

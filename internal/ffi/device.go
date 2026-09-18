@@ -11,6 +11,20 @@ import (
 	"unsafe"
 )
 
+// goBytesFromBuffer copies a zktf_sim_bytes_buffer into a Go slice and destroys
+// the buffer.
+func goBytesFromBuffer(buf *C.zktf_sim_bytes_buffer) []byte {
+	if buf == nil {
+		return nil
+	}
+	defer C.zktf_sim_bytes_buffer_destroy(buf)
+
+	return C.GoBytes(
+		unsafe.Pointer(C.zktf_sim_bytes_buffer_buf(buf)),
+		C.int(C.zktf_sim_bytes_buffer_len(buf)),
+	)
+}
+
 // MatchKind mirrors zktf_sim_match_kind.
 type MatchKind uint32
 
@@ -44,6 +58,15 @@ const (
 	BehaveReject Behaviour = C.ZKTF_SIM_BEHAVE_REJECT
 	BehaveIgnore Behaviour = C.ZKTF_SIM_BEHAVE_IGNORE
 )
+
+// Intercepted is a message diverted by Intercept. The device has taken no
+// action on it.
+type Intercepted struct {
+	From        []byte
+	To          []byte
+	ContentType ContentType
+	Content     []byte
+}
 
 // Device wraps a zktf_sim_device handle.
 type Device struct {
@@ -107,6 +130,98 @@ func (d *Device) Expect(kind MatchKind, contentType ContentType, requestID []byt
 		C.enum_zktf_sim_behaviour(behaviour),
 		C.uint64_t(delayMs),
 	)
+}
+
+// InterceptedFuture is a pending diverted message. Resolve it with Wait, or
+// discard it with Cancel; either consumes the handle.
+type InterceptedFuture struct {
+	ptr *C.zktf_sim_future_intercepted
+}
+
+// Intercept diverts the message carrying requestID and returns the handle it
+// arrives on.
+func (d *Device) Intercept(requestID []byte) *InterceptedFuture {
+	buf, length := cbytes(requestID)
+	defer free(unsafe.Pointer(buf))
+
+	ptr := C.zktf_sim_device_intercept(d.ptr, buf, length)
+	if ptr == nil {
+		return nil
+	}
+	return &InterceptedFuture{ptr: ptr}
+}
+
+// Wait blocks until a message is diverted or timeoutMs elapses, returning nil
+// on timeout. A zero timeout waits indefinitely. Consumes the handle.
+func (f *InterceptedFuture) Wait(timeoutMs uint64) (*Intercepted, error) {
+	var msg *C.zktf_sim_intercepted
+
+	code := C.zktf_sim_future_intercepted_wait(f.ptr, C.uint64_t(timeoutMs), &msg)
+	if code == C.ZKTF_SIM_TIMEOUT {
+		return nil, nil
+	}
+	if err := status(code); err != nil {
+		return nil, err
+	}
+	defer C.zktf_sim_intercepted_destroy(msg)
+
+	from, err := keyBytes(func(buf *C.uint8_t) C.enum_zktf_sim_status {
+		return C.zktf_sim_intercepted_from(msg, buf, signingKeyBytesLen)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	to, err := keyBytes(func(buf *C.uint8_t) C.enum_zktf_sim_status {
+		return C.zktf_sim_intercepted_to(msg, buf, signingKeyBytesLen)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var content *C.zktf_sim_bytes_buffer
+	if err := status(C.zktf_sim_intercepted_content(msg, &content)); err != nil {
+		return nil, err
+	}
+
+	return &Intercepted{
+		From:        from,
+		To:          to,
+		ContentType: ContentType(C.zktf_sim_intercepted_content_type(msg)),
+		Content:     goBytesFromBuffer(content),
+	}, nil
+}
+
+// Cancel discards the handle without taking a message.
+func (f *InterceptedFuture) Cancel() {
+	C.zktf_sim_future_intercepted_cancel(f.ptr)
+}
+
+// SigningKeyCreate mints a signing keypair the device retains and returns its
+// address, so a credential can name it as issuer before it exists as an identity.
+func (d *Device) SigningKeyCreate() ([]byte, error) {
+	return keyBytes(func(buf *C.uint8_t) C.enum_zktf_sim_status {
+		return C.zktf_sim_device_signing_key_create(d.ptr, buf, signingKeyBytesLen)
+	})
+}
+
+// MintControllerIdentity mints a free-standing anchored identity for identifier
+// and signs credential as that identity, in one liveness-authorized batch.
+// credential is JSON; the signed credential is returned as JSON.
+func (d *Device) MintControllerIdentity(identifier, credential []byte) ([]byte, error) {
+	idBuf, idLen := cbytes(identifier)
+	defer free(unsafe.Pointer(idBuf))
+	credBuf, credLen := cbytes(credential)
+	defer free(unsafe.Pointer(credBuf))
+
+	var signed *C.zktf_sim_bytes_buffer
+	if err := status(C.zktf_sim_device_mint_controller_identity(
+		d.ptr, idBuf, idLen, credBuf, credLen, &signed,
+	)); err != nil {
+		return nil, err
+	}
+
+	return goBytesFromBuffer(signed), nil
 }
 
 func (d *Device) Address() ([]byte, error) {
